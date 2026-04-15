@@ -1,48 +1,56 @@
+import 'dotenv/config';
 import express from 'express';
 import http from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
+import { PrismaClient } from '@prisma/client';
 
-// 1. จำลองการตั้งค่า Server (เหมือนการตั้งค่า Apache/Nginx + Routing ในตัวเดียว)
+// ลบ @ts-ignore และ Option ทุกอย่างทิ้งไปเลยครับ!
+const prisma = new PrismaClient();
+
 const app = express();
-app.use(cors()); // อนุญาตให้ Frontend ข้ามโดเมนมาดึงข้อมูลได้
-
+app.use(cors());
 const server = http.createServer(app);
+const io = new Server(server, { cors: { origin: "*" } });
 
-// 2. ตั้งค่า Socket.io สำหรับ WebSockets
-const io = new Server(server, {
-  cors: {
-    origin: "*", // ยอมรับการเชื่อมต่อจากทุกหน้าเว็บ (ซ้อมมือทำได้ แต่ของจริงต้องระบุโดเมน)
-  }
-});
-
-// 3. กำหนด Interface (หน้าตาข้อมูลของหุ่นยนต์)
 interface RobotState {
   id: string;
-  status: "idle" | "moving" | "serving"; // ใช้ Literal Types ล็อคสเปค
+  status: "idle" | "moving" | "serving";
   battery: number;
   position: { x: number; y: number };
 }
 
-// 4. สร้าง State เริ่มต้นของหุ่นยนต์จำลอง
-let myRobot: RobotState = {
-  id: "ROBOT-WEDDING-01",
-  status: "idle",
-  battery: 100,
-  position: { x: 0, y: 0 }
-};
+// 3. เปลี่ยนจากตัวแปรเดียว เป็น Array ของหุ่นยนต์ (มีหุ่น 3 ตัว)
+let robots: RobotState[] = [
+  { id: "R1-NongMook", status: "idle", battery: 100, position: { x: 0, y: 0 } },
+  { id: "R2-NongPloy", status: "idle", battery: 80, position: { x: 10, y: 10 } },
+  { id: "R3-NongPetch", status: "idle", battery: 50, position: { x: -10, y: -10 } }
+];
 
-// 5. เมื่อมี Frontend เชื่อมต่อเข้ามา (เปิดหน้าเว็บ)
-io.on('connection', (socket) => {
-  console.log(`[+] หน้าเว็บเชื่อมต่อสำเร็จ! รหัส: ${socket.id}`);
+io.on('connection', async (socket) => {
+  console.log(`[+] หน้าเว็บเชื่อมต่อ: ${socket.id}`);
 
-  // ส่งข้อมูลหุ่นยนต์ชุดแรกไปให้หน้าเว็บทันทีที่เชื่อมต่อ
-  socket.emit('robotUpdate', myRobot);
+  // 4. ส่งข้อมูลหุ่นยนต์ "ทั้งหมด" ไปให้หน้าเว็บ
+  socket.emit('robotsUpdate', robots);
 
-  // สมมติว่าหน้าเว็บส่ง "คำอวยพร" เข้ามา
-  socket.on('sendGreeting', (data) => {
-    console.log(`[💌] ได้รับคำอวยพรใหม่:`, data);
-    // ในอนาคตเราจะเอาคำอวยพรนี้ไปโชว์ที่หน้าจอหุ่นยนต์ หรือบันทึกลง Database
+  // 5. ดึงประวัติคำอวยพรจาก Database (ใช้ async/await เพราะต้องรอฐานข้อมูล)
+  // เทียบเท่ากับ: SELECT * FROM Greeting ORDER BY createdAt ASC
+  const pastGreetings = await prisma.greeting.findMany({
+    orderBy: { createdAt: 'asc' }
+  });
+  socket.emit('greetingHistory', pastGreetings);
+
+  // 6. เมื่อมีคำอวยพรใหม่ส่งมาจากหน้าเว็บ
+  socket.on('sendGreeting', async (text: string) => {
+    console.log(`[💌] ได้รับคำอวยพรใหม่: ${text}`);
+
+    // 🔥 บันทึกลง Database ทันที! (เทียบเท่ากับ INSERT INTO)
+    const newGreeting = await prisma.greeting.create({
+      data: { message: text }
+    });
+
+    // ส่งคำอวยพรที่เพิ่งเซฟเสร็จ ไปให้ "ทุกหน้าจอ" ที่เปิดอยู่
+    io.emit('newGreeting', newGreeting);
   });
 
   socket.on('disconnect', () => {
@@ -50,27 +58,34 @@ io.on('connection', (socket) => {
   });
 });
 
-// 6. วิญญาณหุ่นยนต์จำลอง (จำลองการทำงานทุกๆ 2 วินาที)
+// 7. จำลองการเดินของหุ่นยนต์ทั้ง 3 ตัวพร้อมกัน
 setInterval(() => {
-  // สุ่มลดแบตเตอรี่ทีละนิด (ป้องกันแบตติดลบ)
-  if (myRobot.battery > 0) {
-    myRobot.battery = Math.max(0, myRobot.battery - Math.random() * 0.5);
-  }
+  // ใช้ .map() เพื่อวนลูปสร้างข้อมูลหุ่นยนต์ตัวใหม่ขึ้นมาแทนที่ตัวเดิม
+  robots = robots.map(robot => {
+    // สุ่มลดแบต
+    let newBattery = Math.max(0, robot.battery - Math.random() * 0.5);
+    
+    // สุ่มการเดิน
+    let newX = robot.position.x + (Math.random() - 0.5) * 5;
+    let newY = robot.position.y + (Math.random() - 0.5) * 5;
 
-  // สุ่มเปลี่ยนตำแหน่ง X, Y เล็กน้อย (จำลองการเดิน)
-  myRobot.position.x += (Math.random() - 0.5) * 5;
-  myRobot.position.y += (Math.random() - 0.5) * 5;
+    // ถ้าแบตเหลือน้อยกว่า 20% ให้หยุดเดิน
+    let newStatus: "idle" | "moving" = newBattery < 20 ? "idle" : "moving";
 
-  // เปลี่ยนสถานะถ้ากำลังเดิน
-  myRobot.status = "moving";
+    // คืนค่า Object หุ่นยนต์ตัวที่อัปเดตแล้ว
+    return {
+      ...robot,
+      battery: newBattery,
+      position: { x: newX, y: newY },
+      status: newStatus
+    };
+  });
 
-  // ประกาศข้อมูลล่าสุดไปให้ "ทุกหน้าเว็บ" ที่เชื่อมต่ออยู่รู้!
-  io.emit('robotUpdate', myRobot);
-  
-}, 2000); // 2000 มิลลิวินาที = 2 วินาที
+  // ประกาศข้อมูลหุ่นยนต์ทั้งฝูง!
+  io.emit('robotsUpdate', robots);
+}, 2000);
 
-// 7. สั่งให้ Server เริ่มทำงานที่ Port 3001
 const PORT = 3001;
 server.listen(PORT, () => {
-  console.log(`🚀 เซิร์ฟเวอร์เริ่มทำงานแล้วที่พอร์ต ${PORT}`);
+  console.log(`🚀 เซิร์ฟเวอร์ (Multi-Robot + Database) ทำงานแล้วที่พอร์ต ${PORT}`);
 });
