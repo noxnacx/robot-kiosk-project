@@ -1,0 +1,17 @@
+-- CreateTable
+CREATE TABLE "Robot" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "name" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'idle',
+    "battery" REAL NOT NULL DEFAULT 100,
+    "posX" REAL NOT NULL DEFAULT 0,
+    "posY" REAL NOT NULL DEFAULT 0,
+    "updatedAt" DATETIME NOT NULL
+);
+
+-- CreateTable
+CREATE TABLE "Greeting" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "message" TEXT NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

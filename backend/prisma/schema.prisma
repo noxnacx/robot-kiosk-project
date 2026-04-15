@@ -1,0 +1,25 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// นี่คือตารางเก็บสถานะหุ่นยนต์
+model Robot {
+  id        String   @id // รหัสหุ่นยนต์
+  name      String
+  status    String   @default("idle")
+  battery   Float    @default(100)
+  posX      Float    @default(0)
+  posY      Float    @default(0)
+  updatedAt DateTime @updatedAt
+}
+
+// ตารางเก็บคำอวยพร (Database จริงๆ)
+model Greeting {
+  id        Int      @id @default(autoincrement())
+  message   String
+  createdAt DateTime @default(now())
+}
